@@ -1,9 +1,10 @@
 from langchain_community.document_loaders import YoutubeLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_vertexai import VertexAI
-from vertexai.generative_models import GenerativeModel
+from langchain_google_genai import GoogleGenerativeAI
 from langchain.chains.summarize import load_summarize_chain
 from langchain.prompts import PromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
+from pydantic import BaseModel, Field
 from tqdm import tqdm
 import json
 import logging
@@ -13,8 +14,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class GeminiProcessor:
-    def __init__(self, model_name, project):
-        self.model = VertexAI(model_name=model_name, project=project)
+    def __init__(self, model_name):
+        self.model = GoogleGenerativeAI(model=model_name)
+        self.parser = JsonOutputParser(pydantic_object=Flashcard)
         
     def generate_document_summary(self, documents: list, **args):
         
@@ -29,11 +31,11 @@ class GeminiProcessor:
         return chain.run(documents)
     
     def count_total_tokens(self, docs: list):
-        temp_model = GenerativeModel("gemini-1.0-pro")
+        temp_model = GoogleGenerativeAI("gemini-1.5-pro")
         total = 0
         logger.info("Counting total billable characters...")
         for doc in tqdm(docs):
-            total += temp_model.count_tokens(doc.page_content).total_billable_characters
+            total += temp_model.get_num_tokens_from_messages(doc.page_content)
         return total
         
     
@@ -49,7 +51,7 @@ class YoutubeProcessor:
             chunk_overlap = 0
         )
         self.GeminiProcessor = genai_processor
-    
+
     def retrieve_youtube_documents(self, video_url: str, verbose = False):
         loader = YoutubeLoader.from_youtube_url(video_url, add_video_info=True)
         docs = loader.load()
@@ -88,7 +90,6 @@ class YoutubeProcessor:
         # Split the document in chunks of size num_docs_per_group
         groups = [documents[i:i+num_docs_per_group] for i in range(0, len(documents), num_docs_per_group)]
         
-        batch_concepts = []
         batch_cost = 0
         
         logger.info("Finding key concepts...")
@@ -105,18 +106,20 @@ class YoutubeProcessor:
                 Find and define key concepts or terms found in the text:
                 {text}
                 
-                Respond in the following format as a JSON object without any backticks separating each concept with a comma:
-                {{"concept": "definition", "concept": "definition", ...}}
+                Formatting:
+                -----------------------------
+                {format_instructions}
+
                 """,
-                input_variables=["text"]
+                input_variables=["text"],
+                partial_variables={"format_instructions": self.GeminiProcessor.parser.get_format_instructions()}
             )
             
             # Create chain
-            chain = prompt | self.GeminiProcessor.model
+            chain = prompt | self.GeminiProcessor.model | self.GeminiProcessor.parser
 
             # Run chain
             output_concept = chain.invoke({"text": group_content})
-            batch_concepts.append(output_concept)
             
             # Post Processing Observation
             if verbose:
@@ -136,9 +139,9 @@ class YoutubeProcessor:
                 batch_cost += total_input_cost + total_output_cost
                 logging.info(f"Total group cost: {total_input_cost + total_output_cost}\n")
             
-        # Convert each JSON string in batch_concepts to a Python Dict
-        processed_concepts = [json.loads(concept) for concept in batch_concepts]
-        
         logging.info(f"Total Analysis Cost: ${batch_cost}")    
-        return processed_concepts
+        return output_concept
     
+class Flashcard(BaseModel):
+    concept: str = Field(description="The concept of the flashcard") 
+    definition: str = Field(description="The definition of the flashcard")

@@ -18,16 +18,12 @@ function App() {
       });
       
       const data = response.data;
+
       if (data.key_concepts && Array.isArray(data.key_concepts)) {
-        const transformedConcepts = data.key_concepts.map(concept => {
-          const term = Object.keys(concept)[0];
-          const definition = concept[term];
-          return { term, definition }; 
-        });
-        setKeyConcepts(transformedConcepts);
+        setKeyConcepts(data.key_concepts);
       }
       else {
-        console.error("Data does not contain key concepts: ", data);
+        console.error("Data does not contains key concepts ", data);
         setKeyConcepts([]);
       }
 
@@ -61,7 +57,7 @@ function App() {
         {keyConcepts.map((concept, index) => (
           <Flashcard
             key={index}
-            term={concept.term}
+            term={concept.concept}
             definition={concept.definition}
             onDiscard={() => discardFlashcard(index)}
           />

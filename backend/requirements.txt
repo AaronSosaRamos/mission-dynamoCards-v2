@@ -1,6 +1,7 @@
 langchain 
+langchain-core
 langchain-community 
-langchain-google-vertexai 
+langchain-google-genai
 pypdf 
 youtube-transcript-api 
 pytube 
